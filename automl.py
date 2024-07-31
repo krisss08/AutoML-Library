@@ -1,3 +1,5 @@
+import mlflow 
+import os 
 from model import AutoMLModelTrain
 import utils as automl_utils
 
@@ -19,24 +21,9 @@ class AutoML:
         automl_utils.check_params(self.configs)
 
         if self.run_id is None:
-            experiment_response = automl_utils.create_new_experiment(self.experiment_name)
-
-            if experiment_response.status_code==201: 
-                print("Experiment set up successful in ML Client")
-                print(f"Expeiment ID: {experiment_response.json()['data']}")
-                print("*"*20)
-                print()
-
-            elif experiment_response.status_code==409:
-                print("Experiment with same name exists - runs will be logged under the existing experiment.")
-                print("*"*20)
-                print()
-
-            else: 
-                print("Failure in setting up Experiment in ML Client")
-                print(experiment_response.text)
-                print("*"*20)
-                print()
+            
+            mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+            mlflow.set_experiment(self.experiment_name)
         
         print(f"Experiment Name: {self.experiment_name}")
         print(f"Task: {self.task}")

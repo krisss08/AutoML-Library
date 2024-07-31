@@ -1,3 +1,4 @@
+import tempfile
 import mlflow
 
 from sklearn.base import BaseEstimator
@@ -109,42 +110,6 @@ class AutoMLModelTrain(BaseEstimator):
         selected_features = [feature for feature, status in zip(self.features, rfe.support_) if status]
         return X_train, X_val, selected_features
 
-    def construct_mlops_payload_for_model(self, payload_contruction_dict): 
-
-        model_payload = {}
-
-        model_payload['model_name'] = self.run_name
-        model_payload['model_description'] = self.model_description
-        model_payload['experiment_name'] = self.experiment_name
-        model_payload['task'] = self.task
-        model_payload['is_automl'] = True
-        model_payload['model_parameters'] = {}
-        model_payload['model_parameters']['model_architecture'] = payload_contruction_dict['model_architecture']
-        model_payload['model_parameters']['library'] = 'scikit-learn'
-        try: 
-            model_args = payload_contruction_dict['model'].get_params()
-            model_payload['model_parameters']['model_args'] = {key: str(value) for key, value in model_args.items()}
-            
-        except: 
-            model_payload['model_parameters']['model_args'] = {}
-            
-        model_payload['metrics'] = {}
-        model_payload['metrics']['training_metrics'] = payload_contruction_dict['metrics']['training_metrics']
-        model_payload['metrics']['validation_metrics'] = payload_contruction_dict['metrics']['validation_metrics']
-
-        model_payload['artifact_config'] = {}
-        model_payload['artifact_config']['model'] = payload_contruction_dict['model_s3_path']
-
-        model_payload['artifact_config']['data_preprocessing_pipeline'] = []
-        model_payload['artifact_config']['data_preprocessing_pipeline'].append({'step_name': 'pipeline', 'object_path': payload_contruction_dict['preproc_pipeline_s3_path'], 'encoding_fields':list(self.selected_features)})
-
-        model_payload['model_interpretability'] = {}
-        model_payload['model_interpretability']['feature_scores'] = {}
-        model_payload['model_interpretability']['feature_scores']['visual_representation'] = payload_contruction_dict['interpret_plot_path']
-        model_payload['model_interpretability']['feature_scores']['tabular_representation'] = payload_contruction_dict['interpret_table_path']
-
-        return model_payload
-
     def fit(self, X, y):
         # ignoring some columns
         X = X[[col for col in X.columns if col not in self.ignore_columns]]
@@ -195,131 +160,95 @@ class AutoMLModelTrain(BaseEstimator):
         print()
 
         if self.ensemble:
+
+            with mlflow.start_run(run_name=f"automl_ensemble-{self.experiment_name}-{model_identifier}", 
+                                  description=f"Creating an Ensemble of {self.include_models}"): 
             
-            if self.verbose:
-                print("\n Data preprocessing for the training data has been completed successfully \n")
-                print(f"Training of Ensemble model of {', '.join(self.include_models)}")
-                print("This might take a moment...")
+                if self.verbose:
+                    print("\n Data preprocessing for the training data has been completed successfully \n")
+                    print(f"Training of Ensemble model of {', '.join(self.include_models)}")
+                    print("This might take a moment...")
 
-            self.ensemble_model = EnsembleModel(self.configs)
-            self.ensemble_model.fit(X_train, y_train)
+                self.ensemble_model = EnsembleModel(self.configs)
+                self.ensemble_model.fit(X_train, y_train)
 
-            if self.verbose:
-                print("\n Training has been completed successfully \n")
+                if self.verbose:
+                    print("\n Training has been completed successfully \n")
 
-            self.best_model = self.ensemble_model
-            model_identifier = automl_utils.generate_uuid()
-            
-            self.best_model_name = f"automl_ensemble-{self.experiment_name}-{model_identifier}"
-            self.run_name = f"automl_ensemble-{self.experiment_name}-{model_identifier}"
-            self.model_description = f"Creating an Ensemble of {self.include_models}"
+                self.best_model = self.ensemble_model
 
-            training_prediction = self.ensemble_model.predict(X_train)
-            training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
-            
-            validation_prediction = self.ensemble_model.predict(X_val)
-            validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
+                mlflow.sklearn.log_model(self.best_model, "model")
+                mlflow.sklearn.log_model(self.pp_.pipeline, "pipeline")
 
-            model_s3_path = automl_utils.upload_joblib_to_s3(self.best_model.model, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/model.joblib')
-            preproc_pipeline_s3_path = automl_utils.upload_joblib_to_s3(self.pp_.pipeline, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/pipeline.joblib')
+                training_prediction = self.ensemble_model.predict(X_train)
+                training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
+                training_metrics = {f'training_{key}': value for key, value in training_metrics.items()}
+                mlflow.log_metrics(training_metrics)
+                
+                validation_prediction = self.ensemble_model.predict(X_val)
+                validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
+                validation_metrics = {f'validation_{key}': value for key, value in validation_metrics.items()}
+                mlflow.log_metrics(validation_metrics)
+                
+                # path for interpretation plots and csv
+                features, scores = self.ensemble_model.interpret(X_train, X_val, y_val, self.features, 'Ensemble')
+                img_buffer, table_buffer = automl_utils.save_interpretation_to_s3('Ensemble', features, scores)
 
-            # path for interpretation plots and csv
-            common_path = f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/'
-            features, scores = self.ensemble_model.interpret(X_train, X_val, y_val, self.features, 'Ensemble')
-            interpret_plot_path, interpret_table_path = automl_utils.save_interpretation_to_s3('Ensemble', features, scores, common_path+'interpretation_plot.png', common_path+'interpretation_table.csv')
+                # Log image to MLflow
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
+                    temp_img_file.write(img_buffer.getvalue())
+                    mlflow.log_artifact(temp_img_file.name, artifact_path="feature_importance_plots")
+                
+                # Log table to MLflow
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_table_file:
+                    temp_table_file.write(table_buffer.getvalue().encode())
+                    mlflow.log_artifact(temp_table_file.name, artifact_path="feature_importance_tables")
 
-            payload_contruction_dict = {
-                'metrics' : {
-                    'training_metrics': training_metrics,
-                    'validation_metrics': validation_metrics
-                },
-                'model_s3_path': model_s3_path,
-                'preproc_pipeline_s3_path': preproc_pipeline_s3_path,
-                'interpret_plot_path': interpret_plot_path,
-                'interpret_table_path': interpret_table_path,
-                'model': self.ensemble_model.model,
-                'model_architecture': 'ensemble'
-            }
-
-            model_payload = self.construct_mlops_payload_for_model(payload_contruction_dict)
-
-            response = automl_utils.create_new_run(model_payload)
-            if response.status_code==201: 
-                print(f"Model {self.best_model_name} registered successfully in ML Client")
-                print(f"Model ID: {response.json()['config']['model_id']}")
-                print(f"ML Client Model ID: {response.json()['config']['ml_client_model_config']['run_id']}")
-            else: 
-                print(response.json())
-
-            # dumping the train config 
-            automl_utils.dump_config(self.configs, response.json()['config']['ml_client_model_config']['run_id'])
-            
-            # dump the feature list 
-            automl_utils.dump_feature_list(self.configs, response.json()['config']['ml_client_model_config']['run_id'],list(self.features))
+                mlflow.log_dict(self.configs, "config.json")
 
         elif self.stacking:
 
-            if self.verbose:
-                print("\n Data preprocessing for the training data has been completed successfully \n")
+            with mlflow.start_run(run_name=f"automl_stacking-{self.experiment_name}-{model_identifier}", 
+                                  description=f"Creating an Stack of {self.include_models}"): 
 
-            self.stacking_model = StackingModel(self.configs)
-            self.stacking_model.fit(X_train, y_train)
+                if self.verbose:
+                    print("\n Data preprocessing for the training data has been completed successfully \n")
 
-            if self.verbose:
-                print("Training has been completed successfully \n")
+                self.stacking_model = StackingModel(self.configs)
+                self.stacking_model.fit(X_train, y_train)
 
-            self.best_model = self.stacking_model
-            model_identifier = automl_utils.generate_uuid()
+                if self.verbose:
+                    print("Training has been completed successfully \n")
 
-            self.best_model_name = f"automl_stacking-{self.experiment_name}-{model_identifier}"
-            self.run_name = f"automl_stacking-{self.experiment_name}-{model_identifier}"
-            self.model_description = f"Creating a Stack of {self.include_models}"
+                self.best_model = self.stacking_model
+                mlflow.sklearn.log_model(self.best_model, "model")
+                mlflow.sklearn.log_model(self.pp_.pipeline, "pipeline")
 
-            training_prediction = self.stacking_model.predict(X_train)
-            training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
-            
-            validation_prediction = self.stacking_model.predict(X_val)
-            validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
+                training_prediction = self.stacking_model.predict(X_train)
+                training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
+                training_metrics = {f'training_{key}': value for key, value in training_metrics.items()}
+                mlflow.log_metrics(training_metrics)
+                
+                validation_prediction = self.stacking_model.predict(X_val)
+                validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
+                validation_metrics = {f'validation_{key}': value for key, value in validation_metrics.items()}
+                mlflow.log_metrics(validation_metrics)
 
-            model_s3_path = automl_utils.upload_joblib_to_s3(self.best_model.model, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/model.joblib')
-            preproc_pipeline_s3_path = automl_utils.upload_joblib_to_s3(self.pp_.pipeline, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/pipeline.joblib')
+                # path for interpretation plots and csv
+                features, scores = self.stacking_model.interpret(X_train, X_val, y_val, self.features, 'Ensemble')
+                img_buffer, table_buffer = automl_utils.save_interpretation_to_s3('Ensemble', features, scores)
 
-            # path for interpretation plots and csv
-            common_path = f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/'
-            features, scores = self.stacking_model.interpret(X_train, X_val, y_val, self.features, 'Stacking')
-            interpret_plot_path, interpret_table_path = automl_utils.save_interpretation_to_s3('Stacking', features, scores, common_path+'interpretation_plot.png', common_path+'interpretation_table.csv')
+                # Log image to MLflow
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
+                    temp_img_file.write(img_buffer.getvalue())
+                    mlflow.log_artifact(temp_img_file.name, artifact_path="feature_importance_plots")
+                
+                # Log table to MLflow
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_table_file:
+                    temp_table_file.write(table_buffer.getvalue().encode())
+                    mlflow.log_artifact(temp_table_file.name, artifact_path="feature_importance_tables")
 
-            payload_contruction_dict = {
-                'metrics' : {
-                    'training_metrics': training_metrics,
-                    'validation_metrics': validation_metrics
-                },
-                'model_s3_path': model_s3_path,
-                'preproc_pipeline_s3_path': preproc_pipeline_s3_path,
-                'interpret_plot_path': interpret_plot_path,
-                'interpret_table_path': interpret_table_path,
-                'model': self.stacking_model.model,
-                'model_architecture': 'stacking'
-            }
-
-            model_payload = self.construct_mlops_payload_for_model(payload_contruction_dict)
-
-            response = automl_utils.create_new_run(model_payload)
-            print(response.text)
-            if response.status_code==201: 
-                print(f"Model {self.best_model_name} registered successfully in ML Client")
-                print(f"Model ID: {response.json()['config']['model_id']}")
-                print(f"ML Client Model ID: {response.json()['config']['ml_client_model_config']['run_id']}")
-            else: 
-                print(response.json())
-
-            # dumping the train config 
-            # automl_utils.dump_config(self.configs, self.best_model_name)
-            automl_utils.dump_config(self.configs, response.json()['config']['ml_client_model_config']['run_id'])
-
-            # dump the feature list 
-            # automl_utils.dump_feature_list(self.configs, self.best_model_name, list(self.features))
-            automl_utils.dump_feature_list(self.configs, response.json()['config']['ml_client_model_config']['run_id'], list(self.features))
+                mlflow.log_dict(self.configs, "config.json")
   
         else:   
             # Neither ensemble nor stacking - train all the models and find the best
@@ -329,95 +258,79 @@ class AutoMLModelTrain(BaseEstimator):
             all_model_metrics = []
             for model, name in zip(self.train_models, self.include_models):
 
+                with mlflow.start_run(): 
+
+                    if self.verbose:
+                        print(f"{name} Training began successfully.")
+                        print("This might take a moment...")
+
+                    if self.tune:
+                        model.tune_and_fit(X_train, y_train)
+                    else:
+                        model.fit(X_train, y_train)
+
+                    if self.verbose:
+                        print(f"Training completed, proceeding to register.")
+
+                    model_identifier = automl_utils.generate_uuid()
+
+                    self.run_name = f"automl-all_models-{name}-{model_identifier}"
+                    self.model_description = f"Fitting all models, compare charts and pick the model."
+
+                    mlflow.sklearn.log_model(model, "model")
+                    mlflow.sklearn.log_model(self.pp_.pipeline, "pipeline")
+
+                    training_prediction = model.predict(X_train)
+                    training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
+                    training_metrics = {f'training_{key}': value for key, value in training_metrics.items()}
+                    mlflow.log_metrics(training_metrics)
+                    
+                    validation_prediction = model.predict(X_val)
+                    validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
+                    validation_metrics = {f'validation_{key}': value for key, value in validation_metrics.items()}
+                    mlflow.log_metrics(validation_metrics)
+
+                    all_model_metrics.append(validation_metrics)
+
+                    # path for interpretation plots and csv
+                    features, scores = model.interpret(X_train, X_val, y_val, self.features, 'Ensemble')
+                    img_buffer, table_buffer = automl_utils.save_interpretation_to_s3('Ensemble', features, scores)
+
+                    # Log image to MLflow
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img_file:
+                        temp_img_file.write(img_buffer.getvalue())
+                        mlflow.log_artifact(temp_img_file.name, artifact_path="feature_importance_plots")
+                    
+                    # Log table to MLflow
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_table_file:
+                        temp_table_file.write(table_buffer.getvalue().encode())
+                        mlflow.log_artifact(temp_table_file.name, artifact_path="feature_importance_tables")
+                        
                 if self.verbose:
-                    print(f"{name} Training began successfully.")
-                    print("This might take a moment...")
+                    print("\n Data preprocessing and training has been completed successfully")
 
-                if self.tune:
-                    model.tune_and_fit(X_train, y_train)
-                else:
-                    model.fit(X_train, y_train)
+                # get the best model based on focus
+                self.best_model, self.best_model_name = automl_utils.select_best(self.include_models, self.train_models,
+                                                                    all_model_metrics, self.task, self.focus)
 
                 if self.verbose:
-                    print(f"Training completed, proceeding to register.")
+                    print("The best model is ", self.best_model_name)
+                    print("Model ID: ", model_run_id_mapping[self.best_model_name]['model_id'])
+                    print("ML Flow Run ID: ", model_run_id_mapping[self.best_model_name]['mlflow_run_id'])
+                    all_model_metrics = pd.DataFrame(all_model_metrics).T
+                    all_model_metrics.columns = self.include_models
+                    display(all_model_metrics)
 
-                model_identifier = automl_utils.generate_uuid()
-
-                self.run_name = f"automl-all_models-{name}-{model_identifier}"
-                self.model_description = f"Fitting all models, compare charts and pick the model."
-
-                training_prediction = model.predict(X_train)
-                training_metrics = automl_utils.calculate_metrics(training_prediction, y_train, self.task)
-                
-                validation_prediction = model.predict(X_val)
-                validation_metrics = automl_utils.calculate_metrics(validation_prediction, y_val, self.task)
-
-                all_model_metrics.append(validation_metrics)
-
-                model_s3_path = automl_utils.upload_joblib_to_s3(model.model, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/model.joblib')
-                preproc_pipeline_s3_path = automl_utils.upload_joblib_to_s3(self.pp_.pipeline, f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/pipeline.joblib')
-
-                # path for interpretation plots and csv
-                common_path = f'AutoML_experiments/{ENV}/{CLIENT}/{self.experiment_name}/{self.run_name}/artifacts/'
-                print(model)
-                features, scores = model.interpret(X_train, X_val, y_val, self.features, name)
-                interpret_plot_path, interpret_table_path = automl_utils.save_interpretation_to_s3(name, features, scores, common_path+'interpretation_plot.png', common_path+'interpretation_table.csv')
-
-                payload_contruction_dict = {
-                    'metrics' : {
-                        'training_metrics': training_metrics,
-                        'validation_metrics': validation_metrics
-                    },
-                    'model_s3_path': model_s3_path,
-                    'preproc_pipeline_s3_path': preproc_pipeline_s3_path,
-                    'interpret_plot_path': interpret_plot_path,
-                    'interpret_table_path': interpret_table_path,
-                    'model': model.model,
-                    'model_architecture': name
-                }
-
-                model_payload = self.construct_mlops_payload_for_model(payload_contruction_dict)
-
-                response = automl_utils.create_new_run(model_payload)
-
-                if response.status_code==201: 
-                    print(f"Model {self.run_name} registered successfully in ML Client")
-                    print(f"Model ID: {response.json()['config']['model_id']}")
-                    print(f"ML Client Model ID: {response.json()['config']['ml_client_model_config']['run_id']}")
-                    model_run_id_mapping[name] = {"model_id": response.json()['config']['model_id'], "mlflow_run_id": response.json()['config']['ml_client_model_config']['run_id']}
-
-                else: 
-                    print(response.json())
-
-                # dumping the train config 
-                # automl_utils.dump_config(self.configs, self.run_name)
-                automl_utils.dump_config(self.configs, response.json()['config']['ml_client_model_config']['run_id'])
-
-                # dump the feature list 
-                # automl_utils.dump_feature_list(self.configs, self.run_name, list(self.features))
-                automl_utils.dump_feature_list(self.configs, response.json()['config']['ml_client_model_config']['run_id'], list(self.features))
-                
-            
-            if self.verbose:
-                print("\n Data preprocessing and training has been completed successfully")
-
-            # get the best model based on focus
-            self.best_model, self.best_model_name = automl_utils.select_best(self.include_models, self.train_models,
-                                                                all_model_metrics, self.task, self.focus)
-
-            if self.verbose:
-                print("The best model is ", self.best_model_name)
-                print("Model ID: ", model_run_id_mapping[self.best_model_name]['model_id'])
-                print("ML Flow Run ID: ", model_run_id_mapping[self.best_model_name]['mlflow_run_id'])
-                all_model_metrics = pd.DataFrame(all_model_metrics).T
-                all_model_metrics.columns = self.include_models
-                display(all_model_metrics)
+                mlflow.log_dict(self.configs, "config.json")
 
     def predict(self, X):
         
         artifact_uri = None
 
         if self.run_id:
+            logged_model = f"runs:/{self.run_id}/model"
+            self.best_model = mlflow.pyfunc.load_model(logged_model)
+
             model_config = automl_utils.get_model_config(self.run_id)
             artifact_uri = model_config['data']['ml_client_model_config']['artifact_uri']
             model_library = model_config['data']['model_parameters']['library']

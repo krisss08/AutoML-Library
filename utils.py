@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import io 
 import mlflow
 import requests
 import boto3
@@ -304,24 +305,24 @@ def get_model_config(model_id):
 def generate_uuid():
     return str(uuid.uuid4())
 
-def save_interpretation_to_s3(model_name, features, scores, plot_key, table_key):
-    bucket_name = "msd-platform-models"
-
-    # save it as image
-    with tempfile.NamedTemporaryFile(delete = False) as temp_file:
-        plt.figure(figsize=(10, 6))
-        plt.title(f"{model_name} - Feature importance Scores")
-        plt.bar(features, scores)
-        plt.savefig(temp_file.name, format = 'png')
-        s3.upload_file(temp_file.name, bucket_name, plot_key)
+def save_interpretation_to_s3(model_name, features, scores):
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    plt.title(f"{model_name} - Feature Importance Scores")
+    plt.bar(features, scores)
+    
+    # Save the plot to an in-memory bytes buffer
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png')
+    img_buffer.seek(0)  # Move the pointer to the start of the buffer
     plt.close()
-
-    # save as table
-    table = pd.DataFrame()
-    table['Feature'] = np.array(features)
-    table['Scores'] = np.array(scores)
-    with tempfile.NamedTemporaryFile(delete = False) as temp_file:
-        table.to_csv(temp_file.name, index = False)
-        s3.upload_file(temp_file.name, bucket_name, table_key)
-
-    return f's3://{bucket_name}/{plot_key}', f's3://{bucket_name}/{table_key}'
+    
+    # Create the table
+    table = pd.DataFrame({'Feature': features, 'Scores': scores})
+    
+    # Save the table to an in-memory bytes buffer
+    table_buffer = io.StringIO()
+    table.to_csv(table_buffer, index=False)
+    table_buffer.seek(0)  # Move the pointer to the start of the buffer
+    
+    return img_buffer, table_buffer
