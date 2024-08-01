@@ -21,8 +21,8 @@ class AutoML:
         automl_utils.check_params(self.configs)
 
         if self.run_id is None:
-            
-            mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+
+            mlflow.set_tracking_uri("http://127.0.0.1:5000/")
             mlflow.set_experiment(self.experiment_name)
         
         print(f"Experiment Name: {self.experiment_name}")
@@ -42,6 +42,10 @@ class AutoML:
             print("SET TO TRAIN MODE")
             print("*"*20)
             print()
+
+        print(X)
+
+        print(y)
         
         self.model.fit(X, y)
         

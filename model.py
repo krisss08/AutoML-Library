@@ -206,6 +206,8 @@ class AutoMLModelTrain(BaseEstimator):
 
                 mlflow.log_dict(self.configs, "config.json")
 
+                mlflow.end_run()
+
         elif self.stacking:
 
             with mlflow.start_run(run_name=f"automl_stacking-{self.experiment_name}-{model_identifier}", 
@@ -249,16 +251,18 @@ class AutoMLModelTrain(BaseEstimator):
                     mlflow.log_artifact(temp_table_file.name, artifact_path="feature_importance_tables")
 
                 mlflow.log_dict(self.configs, "config.json")
+
+                mlflow.end_run()
   
         else:   
             # Neither ensemble nor stacking - train all the models and find the best
             self.train_models = [automl_utils.models[self.task][model](self.configs) for model in self.include_models]
             model_run_id_mapping = {}
-
             all_model_metrics = []
+
             for model, name in zip(self.train_models, self.include_models):
 
-                with mlflow.start_run(): 
+                with mlflow.start_run(run_name=name): 
 
                     if self.verbose:
                         print(f"{name} Training began successfully.")
@@ -305,23 +309,24 @@ class AutoMLModelTrain(BaseEstimator):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_table_file:
                         temp_table_file.write(table_buffer.getvalue().encode())
                         mlflow.log_artifact(temp_table_file.name, artifact_path="feature_importance_tables")
+
+                    mlflow.end_run()
                         
-                if self.verbose:
-                    print("\n Data preprocessing and training has been completed successfully")
+            if self.verbose:
+                print("\n Data preprocessing and training has been completed successfully")
 
-                # get the best model based on focus
-                self.best_model, self.best_model_name = automl_utils.select_best(self.include_models, self.train_models,
-                                                                    all_model_metrics, self.task, self.focus)
+            # get the best model based on focus
+            self.best_model, self.best_model_name = automl_utils.select_best(self.include_models, self.train_models,
+                                                                all_model_metrics, self.task, self.focus)
+        
 
-                if self.verbose:
-                    print("The best model is ", self.best_model_name)
-                    print("Model ID: ", model_run_id_mapping[self.best_model_name]['model_id'])
-                    print("ML Flow Run ID: ", model_run_id_mapping[self.best_model_name]['mlflow_run_id'])
-                    all_model_metrics = pd.DataFrame(all_model_metrics).T
-                    all_model_metrics.columns = self.include_models
-                    display(all_model_metrics)
+            if self.verbose:
+                print("The best model is ", self.best_model_name)
+                all_model_metrics = pd.DataFrame(all_model_metrics).T
+                all_model_metrics.columns = self.include_models
+                display(all_model_metrics)
 
-                mlflow.log_dict(self.configs, "config.json")
+            mlflow.log_dict(self.configs, "config.json")
 
     def predict(self, X):
         

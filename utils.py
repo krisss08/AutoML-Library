@@ -230,13 +230,13 @@ def select_best(included_models, train_models, all_model_metrics, task, focus):
     best_metric_val = float('-inf') if task == 'Classification' or (task == 'Regression' and focus in ['r2', 'explained_variance']) else float('inf')
 
     for name, model, metric in zip(included_models, train_models, all_model_metrics):
-        if (task == 'Classification' or (task == 'Regression' and focus in ['r2', 'explained_variance'])) and metric[focus] > best_metric_val:
-            best_metric_val = metric[focus]
+        if (task == 'Classification' or (task == 'Regression' and focus in ['r2', 'explained_variance'])) and metric[f"validation_{focus}"] > best_metric_val:
+            best_metric_val = metric[f"validation_{focus}"]
             best_model = model
             best_model_name = name
             
-        if task == 'Regression' and focus not in ['r2', 'explained_variance'] and metric[focus] < best_metric_val:
-            best_metric_val = metric[focus]
+        if task == 'Regression' and focus not in ['r2', 'explained_variance'] and metric[f"validation_{focus}"] < best_metric_val:
+            best_metric_val = metric[f"validation_{focus}"]
             best_model = model
             best_model_name = name
     return best_model, best_model_name
