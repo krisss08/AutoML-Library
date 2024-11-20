@@ -1,0 +1,227 @@
+
+---
+title: MLOps Core Concepts
+sidebar_position: 2
+---
+
+### MLOps Core Concepts
+
+#### 1. Experiments
+
+An experiment groups together models aimed at solving a specific problem. It represents the systematic process of developing and refining machine learning models to achieve desired outcomes for a specific task.
+
+##### Why Group Experiments?
+
+Grouping experiments simplifies the management of models and their associated components. Key advantages include:
+
+- **Managing Multiple Configurations**: Organize various model configurations, including hyperparameters, algorithms, and preprocessing techniques.  
+- **Version Control**: Track different versions of models and the data used in training, ensuring reproducibility and rollback capabilities.  
+- **Comparison of Models**: Compare multiple models built for a task to identify the best-performing one.  
+- **Streamlined Deployment**: Simplify selecting and deploying the optimal model to production.  
+- **Tagging**: Mark the best-performing model under each experiment for easy traceability and reproducibility.
+
+#### 2. Models
+
+Models are central to machine learning workflows and are key entities managed by platforms like MLflow. They encompass not just the trained algorithms but also metadata and artifacts required for deployment and reproduction.
+
+##### Core Functions of Models:
+
+- **Versioning**: Maintain versions of models and their training data to ensure consistency across experiments.
+- **Artifact Storage**: Store associated files such as model binaries and preprocessing artifacts for retrieval and deployment.
+- **Metadata Tracking**: Record key information like hyperparameters, metrics, and training environments.
+- **Model Registry**: Provide a centralized repository for registering, organizing, and managing models for collaboration and lifecycle management.
+- **Deployment Facilitation**: Package models with dependencies for seamless integration into production environments.
+
+#### Comprehensive Workflow for Experiment Tracking, Model Registration, and Inference Management
+
+##### 1. Experiment Initialization and Artifact Management
+
+When an experiment is created via the API, essential infrastructure is set up for tracking and managing associated models and artifacts.
+
+- **Experiment Registration**: The experiment is logged into an ML Client, which acts as a centralized container for models and metadata. This allows seamless tracking over time.
+- **Artifact Organization**: A dedicated folder is created to store:
+  - Preprocessing pipelines and model objects
+  - Feature interpretability plots and tables
+  - Performance metrics and scores
+  - Sample datasets for validation and testing  
+
+This structured organization ensures efficient management of all experiment components.
+
+##### 2. Tracking Artifacts and Model Objects
+
+MLflow facilitates managing trained models and their artifacts uniformly, regardless of the underlying machine learning library. This abstraction enables consistent deployment and prediction workflows.
+
+###### MLflow Model Components:
+
+- **MLmodel File**: A configuration file defining how to load and use the model.  
+- **Model Weights (`model.pkl`)**: Serialized files containing the model's trained parameters.  
+- **Environment Files**: Includes `conda.yaml`, `requirements.txt`, or `python_env.yaml`, ensuring a consistent runtime environment.  
+
+###### Supported Model Flavors:
+
+- Scikit-learn  
+- XGBoost  
+- TensorFlow  
+- PyTorch  
+- Statsmodels  
+
+MLflow abstracts library-specific details while maintaining compatibility across diverse environments.
+
+##### Artifact Storage:
+
+- **Polycloud Support**: Integrate with cloud storage solutions such as S3, Azure, and GCP.  
+- **Base Artifact Location**: Organized with a directory structure:  
+
+```text
+EXPERIMENT_ARTIFACT_LOCATION / ENV / CLIENT / EXPERIMENT_NAME / ml_client_model_id
+```
+
+The `ml_client_model_id` provides a unique identifier for each model's artifacts.
+
+##### 3. Performance Evaluation
+
+MLflow APIs enable comprehensive tracking of training and validation metrics. Users can monitor:
+
+- **Performance Indicators**: Track metrics such as accuracy, precision, and recall during training and validation.  
+- **Parameter Comparisons**: Evaluate hyperparameters, architectures, and their influence on performance metrics.  
+
+This functionality supports informed decision-making for selecting the best model for deployment.
+
+##### 4. Inference with Preprocessing Pipelines
+
+After identifying the best-performing model, it can be used for inference, leveraging the stored preprocessing pipeline applied during training.
+
+- **Pipeline Consistency**: Ensures new data undergoes the same preprocessing as training data.  
+- **Reliable Predictions**: Maintains input data consistency to guarantee accurate predictions.  
+
+By combining the model and preprocessing pipeline, inference workflows ensure data integrity and result reliability.
+
+--- 
+
+This streamlined approach to experiment management, artifact tracking, and model deployment ensures efficient workflows and robust machine learning operations.
+
+---
+
+### Prerequisites
+
+Before using the MLOps API, ensure you have the following:
+
+- **API Base URL**: `<API_BASE_URL>` (The domain or IP where your API is deployed)
+- **Python 3.8+** installed.
+- The `requests` package for making HTTP requests.
+
+To install the `requests` package, run:
+
+```bash
+pip install requests
+```
+
+---
+
+### API Endpoints
+
+The MLOps API is organized into two main services:
+
+1. **Experiment Service**: For managing machine learning experiments.
+2. **Model Service**: For managing models associated with experiments.
+
+All endpoints use standard HTTP verbs:
+
+- **POST**: To create a new resource.
+- **GET**: To retrieve a resource.
+- **PATCH**: To update a resource.
+- **DELETE**: To remove a resource.
+
+Each service supports the following CRUDL (Create, Read, Update, Delete, List) operations.
+
+---
+
+#### Experiment Service
+
+**Base URL**: `<API_BASE_URL>`
+
+| Operation             | HTTP Method | Endpoint                      | Description                                 |
+|-----------------------|-------------|------------------------------|---------------------------------------------|
+| Create Experiment     | POST        | `/experiments`               | Creates a new experiment. Returns experiment ID. |
+| List Experiments      | GET         | `/experiments`               | Returns a list of all created experiments. |
+| Get Experiment        | GET         | `/experiments/{experiment_id}`| Returns metadata of the specified experiment. |
+| Update Experiment     | PATCH       | `/experiments/{experiment_id}`| Updates the experiment metadata. |
+| Delete Experiment     | DELETE      | `/experiments/{experiment_id}`| Deletes the specified experiment. |
+
+**Create Experiment Example**:
+
+```python
+import requests
+
+url = f"<API_BASE_URL>/experiments"
+headers = {
+    "Content-Type": "application/json"
+}
+
+payload = {
+    "experiment_name": "New Experiment",
+    "experiment_description": "Description of the experiment",
+    "tags": ["tag1", "tag2"]
+}
+
+response = requests.post(url, headers=headers, json=payload)
+
+if response.status_code == 201:
+    print(f"Experiment created with ID: {response.json()['experiment_id']}")
+else:
+    print(f"Failed to create experiment: {response.text}")
+```
+
+---
+
+#### Model Service
+
+**Base URL**: `<API_BASE_URL>`
+
+| Operation             | HTTP Method | Endpoint                      | Description                                 |
+|-----------------------|-------------|------------------------------|---------------------------------------------|
+| Create Model          | POST        | `/models`                    | Creates a new model associated with an experiment. |
+| List Models           | GET         | `/models`                    | Returns a list of all models. |
+| Get Model             | GET         | `/models/{model_id}`         | Returns details of the specified model. |
+| Update Model          | PATCH       | `/models/{model_id}`         | Updates the model metadata. |
+| Delete Model          | DELETE      | `/models/{model_id}`         | Deletes the specified model. |
+
+**Create Model Example**:
+
+```python
+import requests
+
+url = f"<API_BASE_URL>/models"
+headers = {
+    "Content-Type": "application/json"
+}
+
+payload = {
+    "model_name": "Model 1",
+    "experiment_name": "experiment_name_here",
+    "tags": ["tag1", "tag2"]
+}
+
+response = requests.post(url, headers=headers, json=payload)
+
+if response.status_code == 201:
+    print(f"Model created with ID: {response.json()['model_id']}")
+else:
+    print(f"Failed to create model: {response.text}")
+```
+
+---
+
+### Error Handling
+
+The API returns standard HTTP response codes to indicate the success or failure of API requests.
+
+| Status Code | Description                             |
+|-------------|-----------------------------------------|
+| 200         | Success                                |
+| 400         | Bad request, invalid parameters        |
+| 409         | Conflict                               |
+| 404         | Resource not found                     |
+| 500         | Internal server error                  |
+
+Always check the `response.status_code` and handle errors gracefully in your application.
