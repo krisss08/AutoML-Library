@@ -1,0 +1,146 @@
+
+---
+title: MLOps API Documentation
+sidebar_position: 1
+---
+
+### MLOps API Documentation
+
+This document provides a comprehensive guide to using the MLOps API, including its prerequisites, endpoints, and usage examples.
+
+---
+
+### Prerequisites
+
+Before using the MLOps API, ensure the following prerequisites are met:
+
+- **API Base URL**: `<API_BASE_URL>` (the domain or IP where your API is deployed).
+- **Python 3.8+** installed.
+- **Requests package** for making HTTP requests. Install it by running:
+
+```bash
+pip install requests
+```
+
+---
+
+### API Endpoints
+
+The MLOps API is organized into two primary services:
+
+1. **Experiment Service**: Manages machine learning experiments.
+2. **Model Service**: Manages models associated with experiments.
+
+#### HTTP Verbs
+
+All endpoints use standard HTTP verbs:
+
+- `POST`: Create a new resource.
+- `GET`: Retrieve a resource.
+- `PATCH`: Update a resource.
+- `DELETE`: Remove a resource.
+
+#### CRUDL Operations
+
+Both services support the following CRUDL operations:
+
+- Create
+- Read
+- Update
+- Delete
+- List
+
+---
+
+### Experiment Service
+
+**Base URL**: `<API_BASE_URL>`
+
+| Operation            | HTTP Method | Endpoint                     | Description                          |
+|----------------------|-------------|-----------------------------|--------------------------------------|
+| Create Experiment    | `POST`      | `/experiments`               | Creates a new experiment. Returns the experiment ID. |
+| List Experiments     | `GET`       | `/experiments`               | Returns a list of all created experiments. |
+| Get Experiment       | `GET`       | `/experiments/{experiment_id}` | Returns metadata of the specified experiment. |
+| Update Experiment    | `PATCH`     | `/experiments/{experiment_id}` | Updates the experiment metadata. |
+| Delete Experiment    | `DELETE`    | `/experiments/{experiment_id}` | Deletes the specified experiment. |
+
+#### Create Experiment Example
+
+```python
+import requests
+
+url = f"<API_BASE_URL>/experiments"
+headers = {
+    "Content-Type": "application/json"
+}
+
+payload = {
+    "experiment_name": "New Experiment",
+    "experiment_description": "Description of the experiment",
+    "tags": ["tag1", "tag2"]
+}
+
+response = requests.post(url, headers=headers, json=payload)
+
+if response.status_code == 201:
+    print(f"Experiment created with ID: {response.json()['experiment_id']}")
+else:
+    print(f"Failed to create experiment: {response.text}")
+```
+
+---
+
+### Model Service
+
+**Base URL**: `<API_BASE_URL>`
+
+| Operation        | HTTP Method | Endpoint               | Description                          |
+|------------------|-------------|------------------------|--------------------------------------|
+| Create Model     | `POST`      | `/models`              | Creates a new model associated with an experiment. |
+| List Models      | `GET`       | `/models`              | Returns a list of all models.       |
+| Get Model        | `GET`       | `/models/{model_id}`   | Returns details of the specified model. |
+| Update Model     | `PATCH`     | `/models/{model_id}`   | Updates the model metadata.         |
+| Delete Model     | `DELETE`    | `/models/{model_id}`   | Deletes the specified model.        |
+
+#### Create Model Example
+
+```python
+import requests
+
+url = f"<API_BASE_URL>/models"
+headers = {
+    "Content-Type": "application/json"
+}
+
+payload = {
+    "model_name": "Model 1",
+    "experiment_name": "experiment_name_here",
+    "tags": ["tag1", "tag2"]
+}
+
+response = requests.post(url, headers=headers, json=payload)
+
+if response.status_code == 201:
+    print(f"Model created with ID: {response.json()['model_id']}")
+else:
+    print(f"Failed to create model: {response.text}")
+```
+
+---
+
+### Error Handling
+
+The API uses standard HTTP response codes to indicate the success or failure of requests:
+
+| Status Code | Description                              |
+|-------------|------------------------------------------|
+| `200`       | Success                                 |
+| `400`       | Bad request; invalid parameters         |
+| `409`       | Conflict                                |
+| `404`       | Resource not found                     |
+| `500`       | Internal server error                   |
+
+Always check `response.status_code` and handle errors gracefully in your application.
+
+---
+

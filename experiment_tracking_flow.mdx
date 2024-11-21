@@ -1,0 +1,76 @@
+---
+title: Comprehensive Flow for Experiment Tracking, Model Registration, and Inference Management
+sidebar_position: 2
+---
+
+### Comprehensive Flow for Experiment Tracking, Model Registration, and Inference Management
+
+This document outlines the systematic approach for managing experiments, registering models, and handling inference tasks in a machine learning pipeline.
+
+### 1. Experiment Initialization and Artifact Management
+
+When an experiment is created through the API, several actions take place to set up the necessary infrastructure for tracking and managing models and artifacts.
+
+#### Experiment Registration
+
+The experiment is registered in the ML Client, which acts as a centralized container for all models and their associated metadata. This structure enables easy tracking and management of multiple models over time.
+
+#### Artifact Folder Creation
+
+A dedicated folder is created to store all artifacts associated with the experiment. This folder typically includes:
+
+- Preprocessor and model objects
+- Feature interpretability plots and tables
+- Model performance metrics and scores
+- Sample datasets for validation and testing
+
+By organizing artifacts in this way, users can efficiently manage all components related to a particular experiment.
+
+### 2. Tracking Preprocessing Artifacts and Model Objects during Model Creation
+
+When the user passes a model object or a path pointing to the trained model, MLflow creates a library-agnostic copy of the model for inference. This ensures uniformity across deployment and prediction tasks, regardless of the machine learning library used for training.
+
+#### MLflow Model Flavors
+
+MLflow supports various model flavors to handle nuances of different libraries while providing a consistent interface for users. These include:
+
+- scikit-learn
+- XGBoost
+- TensorFlow
+- PyTorch
+- Statsmodels
+
+#### Components of an MLflow Model
+
+- **MLmodel file**: A configuration file specifying how to load and use the model. It includes metadata about the model's flavor and the paths to necessary files.
+- **model.pkl**: A serialized file containing the trained model's weights, essential for making predictions.
+- **Environment Files**: These include `conda.yaml`, `requirements.txt`, and `python_env.yaml`, which specify dependencies for running the model in a consistent and replicable environment.
+
+#### Artifact Storage
+
+- **Polycloud Support**: Integration with multiple cloud storage providers (e.g., S3, Azure, GCP) ensures flexibility and compatibility with MLflow.
+- **Base Artifact Location**: During application startup, a base artifact location is initialized with the following directory structure:
+
+```
+EXPERIMENT_ARTIFACT_LOCATION / ENV / CLIENT / EXPERIMENT_NAME / ml_client_model_id
+```
+
+Here, `ml_client_model_id` is generated at the time of model creation, providing a unique identifier for each model's artifacts. This systematic organization facilitates efficient management of experiment-related artifacts.
+
+### 3. Performance Evaluation through MLflow
+
+The MLOps APIs support tracking training and validation metrics throughout the machine learning lifecycle. Key features include:
+
+- Monitoring performance indicators during training and validation phases.
+- Tracking model parameters such as hyperparameters and architecture configurations.
+
+This capability enables users to compare models side-by-side based on their parameters and performance metrics, streamlining the process of selecting the best-performing model for deployment.
+
+### 4. Inference with Preprocessing Pipeline
+
+After identifying the best-performing model, it is utilized for inference tasks. Along with the model, the preprocessing pipeline used during training is saved. Key aspects include:
+
+- Ensuring new data undergoes the same transformations applied during training.
+- Maintaining the sequence of preprocessing steps to guarantee consistent and accurate predictions.
+
+By preserving the preprocessing pipeline, the system ensures data integrity and reliability during inference, providing seamless transitions from training to production environments.
